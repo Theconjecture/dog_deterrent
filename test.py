@@ -3,10 +3,12 @@ import time
 
 pin = 18
 steps = 10000
+pulse_freq = 22000
 freq_start = 20000
 freq_end = 30000
 duty = 50 * steps
 sweep_time = 3
+pulse_on, pulse_off = 0.5, 0.2
 
 pi = pigpio.pi()
 
@@ -16,13 +18,23 @@ pi.set_pull_up_down(pin, pigpio.PUD_DOWN)
 try:
 
     while True:
+        """
         for freq in range(freq_start,freq_end+1, 10):
             pi.hardware_PWM(pin, freq, duty)
             time.sleep(sweep_time/(freq_end-freq_start))
 
         for freq in range(freq_end,freq_start-1,-10):
-                    pi.hardware_PWM(pin, freq, duty)
-                    time.sleep(sweep_time/(freq_end-freq_start))
+            pi.hardware_PWM(pin, freq, duty)
+            time.sleep(sweep_time/(freq_end-freq_start))
+        """
+
+        # Turn PWM ON
+        pi.hardware_PWM(pin, pulse_freq, duty)
+        time.sleep(pulse_on)
+
+        # Turn PWM OFF
+        pi.hardware_PWM(pin, 0, 0)
+        time.sleep(pulse_off)
 
 
 except KeyboardInterrupt:
