@@ -22,9 +22,11 @@ The values of each are:
     p = 1
     n = 50
 """
+import subprocess
 import numpy as np 
 import pigpio
 import time 
+from scipy.io.wavfile import write
 
 # initialize pigpio
 
@@ -33,17 +35,17 @@ pi = pigpio.pi()
 # Parameters
 
 f = 24000  # frequency
-sample_rate = 2 * f 
+sample_rate = 16 * f 
 period = 1/f # seconds
+
 duration = 15 # seconds
 
 # Carrier signal
 
 A = 3       # amplitude
 def carrier(x):
-    car = A*np.sin(2*np.pi*f*x)
+    car = A*np.sin(2*np.pi*f*np.array(x))
     return car
-
 
 # Damping sinosoid
 
@@ -54,7 +56,6 @@ beta = t * f * np.log(q)
 u = 0
 p = 1
 n = 50      # nth harmonicbin
-
 
 def modulation(x):
     mod = B*np.exp(-beta*(u+(np.mod(x,period)))) * np.sin(2*n*np.pi*f*x)
@@ -70,20 +71,7 @@ modulating_wave = modulation(t)
 
 custom_wave = carrier_wave + modulating_wave
 
-print("Max value:", max(custom_wave), "\nMin value: ", min(custom_wave))
-print("Max value:", max(carrier_wave), "\nMin value: ", min(carrier_wave))
-print("Max value:", max(modulating_wave), "\nMin value: ", min(modulating_wave))
-"""
-# Normalize to 8-bit PWM range (0 to 255)
-min_val, max_val = -4.3, 5.4
-pwm_wave = ((custom_wave - min_val) / (max_val - min_val) * 255).astype(np.uint8)
+audio_data = np.int16(custom_wave*10922)
 
-# output pwm signal
-print("This is the pwm_wave")
-while True:
-
-    for value in custom_wave:
-        pi.hardware_PWM(18, f,  int(value * 1000000 / 255))  # GPIO 18
-
-pi.stop()
-"""
+# save as wav file
+write("wave.wav", sample_rate, audio_data)
