@@ -1,7 +1,7 @@
 import time
 from datetime import datetime as dt
 from yolo_predictor import YOLODetector
-from whistle import start_whistle, stop_whistle
+#from whistle import start_whistle, stop_whistle
 import cv2
 
 STATE_IDLE = "IDLE"
@@ -12,7 +12,16 @@ state = STATE_IDLE
 timer = dt
 timer_start: float = 0.0 
 now = dt
-camera = cv2.VideoCapture('dog.mp4')
+camera = cv2.VideoCapture('../media/dog.mp4')
+
+# Get video properties for the output file
+frame_width = int(camera.get(cv2.CAP_PROP_FRAME_WIDTH))
+frame_height = int(camera.get(cv2.CAP_PROP_FRAME_HEIGHT))
+fps = int(camera.get(cv2.CAP_PROP_FPS))
+
+# Define the codec and create VideoWriter object
+fourcc = cv2.VideoWriter_fourcc(*'mp4v')  # or use 'XVID' for AVI
+out = cv2.VideoWriter('output_with_boxes.mp4', fourcc, fps, (frame_width, frame_height))
 
 detector = YOLODetector("best.onnx", "data.yaml")
 
@@ -44,25 +53,28 @@ try:
             timer_text = f"Timer: {elapsed}s"
             cv2.putText(frame, timer_text, (10, 70), cv2.FONT_HERSHEY_SIMPLEX, 1, (255,255,255), 2)
         
+        # Write the frame with boxes to output video
+        out.write(frame)
+
         # Display frame
         #cv2.imshow("Dog Detector", frame) 
 
         if state == STATE_IDLE:
             if dog_detected:
                 print("Dog detected - starting whistle")
-                start_whistle()
+                #start_whistle()
                 timer_start = now.now().timestamp()
                 state = STATE_ACTIVE
 
         elif state == STATE_ACTIVE:
             if not dog_detected:
                 print("Dog lost - stopping whistle")
-                stop_whistle()
+                #stop_whistle()
                 state = STATE_IDLE
                 timer_start = 0.0
             elif now.now().timestamp() - timer_start >= 10:
                 print("10s passed - entering cooldown")
-                stop_whistle()
+                #stop_whistle()
                 timer_start = now.now().timestamp()
                 state = STATE_COOLDOWN
 
@@ -73,12 +85,13 @@ try:
                 timer_start = 0.0
             elif now.now().timestamp() - timer_start >= 10:
                 print("Cooldown done, dog still here - reactivating whistle")
-                start_whistle()
+                #start_whistle()
                 timer_start = now.now().timestamp()
                 state = STATE_ACTIVE
 
 
 except KeyboardInterrupt:
     print("Exiting...")
+    out.release()
     camera.release()
-    stop_whistle()
+    #stop_whistle()
