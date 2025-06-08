@@ -3,13 +3,20 @@ import time
 from datetime import datetime as dt
 import cv2
 from yolo_predictor import YOLODetector
-from whistle import start_whistle, stop_whistle
+#from whistle import #start_whistle, #stop_whistle
 import numpy as np
 
 # States
 STATE_IDLE = "IDLE"
 STATE_ACTIVE = "WHISTLE_ON"
 STATE_COOLDOWN = "COOLDOWN"
+camera = cv2.VideoCapture('../media/dog.mp4')
+# Get video properties for the output file
+frame_width = int(camera.get(cv2.CAP_PROP_FRAME_WIDTH))
+frame_height = int(camera.get(cv2.CAP_PROP_FRAME_HEIGHT))
+fps = int(camera.get(cv2.CAP_PROP_FPS))
+
+print(frame_height,frame_width, fps)
 
 class SharedData:
     def __init__(self):
@@ -19,7 +26,7 @@ class SharedData:
         self.running = True
 
 
-def capture_and_detect(data: SharedData, detector: YOLODetector, video_source: str = 'dog.mp4'):
+def capture_and_detect(data: SharedData, detector: YOLODetector, video_source: str = '../media/dog.mp4'):
     camera = cv2.VideoCapture(video_source)
     while data.running:
         ret, frame = camera.read()
@@ -63,19 +70,19 @@ def state_machine(data: SharedData):
         if state == STATE_IDLE:
             if detected:
                 print("Dog detected - starting whistle")
-                start_whistle()
+                #start_whistle()
                 timer_start = now_ts
                 state = STATE_ACTIVE
 
         elif state == STATE_ACTIVE:
             if not detected:
                 print("Dog lost - stopping whistle")
-                stop_whistle()
+                #stop_whistle()
                 state = STATE_IDLE
                 timer_start = 0.0
             elif now_ts - timer_start >= 10:
                 print("10s passed - entering cooldown")
-                stop_whistle()
+                #stop_whistle()
                 timer_start = now_ts
                 state = STATE_COOLDOWN
 
@@ -86,7 +93,7 @@ def state_machine(data: SharedData):
                 timer_start = 0.0
             elif now_ts - timer_start >= 10:
                 print("Cooldown done, dog still here - reactivating whistle")
-                start_whistle()
+                #start_whistle()
                 timer_start = now_ts
                 state = STATE_ACTIVE
 
@@ -103,7 +110,7 @@ def state_machine(data: SharedData):
         time.sleep(0.1)  # state checks every 100ms
 
     # Clean up
-    stop_whistle()
+    #stop_whistle()
     cv2.destroyAllWindows()
 
 
