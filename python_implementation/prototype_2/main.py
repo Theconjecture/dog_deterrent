@@ -1,96 +1,158 @@
+import threading
+import time
 from datetime import datetime as dt
-from yolo_predictor import YOLODetector
-#from whistle import start_whistle, stop_whistle
 import cv2
+from yolo_predictor import YOLODetector
+import numpy as np
+from typing import Optional
 
+# States
 STATE_IDLE = "IDLE"
 STATE_ACTIVE = "WHISTLE_ON"
 STATE_COOLDOWN = "COOLDOWN"
-
-state = STATE_IDLE
-timer = dt
-timer_start: float = 0.0 
-now = dt
-camera = cv2.VideoCapture('../media/dog.mp4')
-
-# Get video properties for the output file
-frame_width = int(camera.get(cv2.CAP_PROP_FRAME_WIDTH))
-frame_height = int(camera.get(cv2.CAP_PROP_FRAME_HEIGHT))
-fps = int(camera.get(cv2.CAP_PROP_FPS))
-
-# Define the codec and create VideoWriter object
-fourcc = cv2.VideoWriter_fourcc(*'mp4v')  # or use 'XVID' for AVI
-out = cv2.VideoWriter('../media/output_with_boxes.mp4', fourcc, fps, (frame_width, frame_height))
+frate = 30 
 
 detector = YOLODetector("best.onnx", "data.yaml")
+class SharedData:
+    def __init__(self):
+        self.frame: Optional[np.ndarray] = None
+        self.processed_frame: Optional[np.ndarray] = None
+        self.dog_detected = False
+        self.lock = threading.Lock()
+        self.running = True
+        self.new_frame_event = threading.Event()  # Signals when new frame is available
+        self.frame_processed = threading.Event()  # Signals when frame processing is done
 
+def capture_and_detect(data: SharedData, detector: YOLODetector, video_source: int = 0):
+    camera = cv2.VideoCapture(video_source)
+    
+    # Get video properties for the output file
+    frame_width = int(camera.get(cv2.CAP_PROP_FRAME_WIDTH))
+    frame_height = int(camera.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    fps = int(camera.get(cv2.CAP_PROP_FPS))
+    frate = fps
+    # Define the codec and create VideoWriter object
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+    out = cv2.VideoWriter('../media/output_with_boxes.mp4', fourcc, fps, (frame_width, frame_height))
+    
+    try:
+        while data.running:
+            ret, frame = camera.read()
+            if not ret:
+                print("Camera error or end of video!")
+                data.running = False
+                break
 
-try:
-    while True:
-        ret, frame = camera.read()
-        if not ret:
-            print("Camera error!")
-            break
+            # Signal that we have a new frame to process
+            with data.lock:
+                data.frame = frame
+                data.new_frame_event.set()
+
+            # Wait for state machine to process the frame
+            if data.frame_processed.wait(timeout=1/fps):
+                data.frame_processed.clear()
+                
+                # Write the processed frame to output video
+                with data.lock:
+                    if data.processed_frame is not None:
+                        out.write(data.processed_frame)
+    finally:
+        camera.release()
+        out.release()
+        data.new_frame_event.set()  # Ensure state machine can exit
+
+def state_machine(data: SharedData):
+    state = STATE_IDLE
+    timer_start = 0.0
+    frame_counter = 0
+
+    while data.running:
+        # Wait for a new frame to be available
+        if not data.new_frame_event.wait(timeout=1.0):
+            continue  # Timeout, check if we should still run
         
-        # Get detections and draw boxes
+        data.new_frame_event.clear()
+        frame_counter += 1
+        print(f"Processing frame {frame_counter}")
+
+        with data.lock:
+            frame = data.frame
+            if frame is None:
+                continue
+
+        # Detect dogs
         boxes, indices = detector.detect(frame)
-        dog_detected = len(indices) > 0
-        
-        # Draw bounding boxes
+        detected = len(indices) > 0
+
+        # Annotate frame
+        annotated_frame = frame.copy()
         for i in indices:
             x1, y1, x2, y2 = boxes[i]
-            cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-            cv2.putText(frame, "Dog", (x1, y1-10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0,255,0), 2)
-        
-        # Display state info
-        state_text = f"State: {state}"
-        cv2.putText(frame, state_text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (255,255,255), 2)
-        
-        # Show timer if active
-        if state in [STATE_ACTIVE, STATE_COOLDOWN]:
-            elapsed = now.now().timestamp() - timer_start
-            timer_text = f"Timer: {elapsed}s"
-            cv2.putText(frame, timer_text, (10, 70), cv2.FONT_HERSHEY_SIMPLEX, 1, (255,255,255), 2)
-        
-        # Write the frame with boxes to output video
-        out.write(frame)
+            cv2.rectangle(annotated_frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+            cv2.putText(annotated_frame, "Dog", (x1, y1-10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0,255,0), 2)
 
-        # Display frame
-        #cv2.imshow("Dog Detector", frame) 
+        # State machine logic
+        now_ts = dt.now().timestamp()
 
         if state == STATE_IDLE:
-            if dog_detected:
-                print("Dog detected - starting whistle")
+            if detected:
+                print(f"Frame {frame_counter}: Dog detected - starting whistle")
                 #start_whistle()
-                timer_start = now.now().timestamp()
+                timer_start = now_ts
                 state = STATE_ACTIVE
 
         elif state == STATE_ACTIVE:
-            if not dog_detected:
-                print("Dog lost - stopping whistle")
+            if not detected:
+                print(f"Frame {frame_counter}: Dog lost - stopping whistle")
                 #stop_whistle()
                 state = STATE_IDLE
                 timer_start = 0.0
-            elif now.now().timestamp() - timer_start >= 10:
-                print("10s passed - entering cooldown")
+            elif now_ts - timer_start >= 10:
+                print(f"Frame {frame_counter}: 10s passed - entering cooldown")
                 #stop_whistle()
-                timer_start = now.now().timestamp()
+                timer_start = now_ts
                 state = STATE_COOLDOWN
 
         elif state == STATE_COOLDOWN:
-            if not dog_detected:
-                print("Cooldown done, no dog - back to IDLE")
+            if not detected:
+                print(f"Frame {frame_counter}: Cooldown done, no dog - back to IDLE")
                 state = STATE_IDLE
                 timer_start = 0.0
-            elif now.now().timestamp() - timer_start >= 10:
-                print("Cooldown done, dog still here - reactivating whistle")
+            elif now_ts - timer_start >= 10:
+                print(f"Frame {frame_counter}: Cooldown done, dog still here - reactivating whistle")
                 #start_whistle()
-                timer_start = now.now().timestamp()
+                timer_start = now_ts
                 state = STATE_ACTIVE
 
+        # Store the processed frame and detection result
+        with data.lock:
+            data.processed_frame = annotated_frame
+            data.dog_detected = detected
+            data.frame_processed.set()  # Signal that processing is complete
 
-except KeyboardInterrupt:
-    print("Exiting...")
-    out.release()
-    camera.release()
+    # Clean up
     #stop_whistle()
+
+def main():
+    detector = YOLODetector("best.onnx", "data.yaml")
+    data = SharedData()
+
+    # Threads
+    t1 = threading.Thread(target=capture_and_detect, args=(data, detector), daemon=True)
+    t2 = threading.Thread(target=state_machine, args=(data,), daemon=True)
+
+    t1.start()
+    t2.start()
+
+    try:
+        while data.running:
+            time.sleep(1/frate)
+    except KeyboardInterrupt:
+        print("Stopping...")
+        data.running = False
+
+    t1.join()
+    t2.join()
+
+if __name__ == '__main__':
+    main()

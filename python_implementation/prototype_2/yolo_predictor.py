@@ -32,10 +32,10 @@ class YOLODetector:
                     cx, cy, w, h = detection[:4]
                     frame_h, frame_w = frame.shape[:2]
 
-                    x1 = int((cx - w / 2) * frame_w)
-                    y1 = int((cy - h / 2) * frame_h)
-                    x2 = int((cx + w / 2) * frame_w)
-                    y2 = int((cy + h / 2) * frame_h)
+                    x1 = int((cx - w / 2) )
+                    y1 = int((cy - h / 2) )
+                    x2 = int((cx + w / 2) )
+                    y2 = int((cy + h / 2) )
 
                     boxes.append([x1, y1, x2, y2])
 
